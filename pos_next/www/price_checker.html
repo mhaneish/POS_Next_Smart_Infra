@@ -1,0 +1,188 @@
+{% extends "templates/web.html" %}
+{% block title %}Price Checker{% endblock %}
+{% block style %}
+<style>
+    /* Kiosk Mode Styles */
+    header, footer, .navbar, .page-footer, .standard-sidebar {
+        display: none !important;
+    }
+    
+    .page-container {
+        padding-top: 0 !important;
+        margin: 0 !important;
+        max-width: 100% !important;
+        background-color: white;
+    }
+
+    body {
+        background-color: #f4f4f4;
+        font-family: 'Inter', sans-serif;
+        height: 100vh;
+        overflow: hidden;
+    }
+
+    .checker-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        text-align: center;
+        padding: 20px;
+    }
+
+    .logo-img {
+        max-width: 250px;
+        margin-bottom: 30px;
+    }
+
+    .instruction-text {
+        font-size: 2rem;
+        color: #333;
+        margin-bottom: 40px;
+        font-weight: 600;
+    }
+
+    .arabic-text {
+        display: block;
+        direction: rtl;
+        color: #555;
+        margin-top: 10px;
+    }
+
+    .result-card {
+        background: white;
+        padding: 40px;
+        border-radius: 15px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        width: 80%;
+        max-width: 800px;
+        min-height: 250px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .product-name {
+        font-size: 2.5rem;
+        font-weight: 700;
+        color: #2c3e50;
+        margin-bottom: 20px;
+    }
+
+    .product-price {
+        font-size: 4rem;
+        font-weight: 800;
+        color: #e74c3c;
+    }
+
+    .currency {
+        font-size: 2rem;
+        color: #7f8c8d;
+    }
+
+    /* Hidden input for scanner */
+    #barcode-input {
+        position: absolute;
+        top: -1000px;
+        opacity: 0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="checker-container">
+    <img src="/files/HOC.png" alt="Home of Colors Logo" class="logo-img">
+
+    <div class="instruction-text">
+        Scan the product to see the price
+        <span class="arabic-text">امسح المنتج لمعرفة السعر</span>
+    </div>
+
+    <div class="result-card">
+        <div id="product-name" class="product-name">Ready / جاهز</div>
+        <div id="product-price" class="product-price"></div>
+    </div>
+
+    <input type="text" id="barcode-input" autocomplete="off" autofocus>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+    frappe.ready(function() {
+        const input = document.getElementById('barcode-input');
+        const nameEl = document.getElementById('product-name');
+        const priceEl = document.getElementById('product-price');
+        let typingTimer;
+
+        // Keep focus on input
+        document.addEventListener('click', () => input.focus());
+        input.focus();
+
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                clearTimeout(typingTimer);
+                handleScan();
+            } else {
+                clearTimeout(typingTimer);
+                typingTimer = setTimeout(handleScan, 200);
+            }
+        });
+
+        function handleScan() {
+            const barcode = input.value.trim();
+            if (!barcode) return;
+            
+            input.value = ''; // Clear input immediately
+            nameEl.innerText = "Scanning... / جاري المسح";
+            priceEl.innerText = "";
+
+            // Call the Python backend function
+            frappe.call({
+                method: 'pos_next.www.price_checker.get_item_info',
+                args: { barcode: barcode },
+                callback: function(r) {
+                    if (r.message && !r.message.error) {
+                        // Show Name
+                        const item = r.message.item;
+                        nameEl.innerText = item.item_name || item.item_code;
+
+                        // Show Price
+                        if (r.message.price) {
+                            const price = r.message.price.price_list_rate;
+                            const currency = r.message.price.currency;
+                            
+                            // Format price
+                            try {
+                                priceEl.innerHTML = format_currency(price, currency);
+                            } catch(e) {
+                                priceEl.innerHTML = `<span class="currency">${currency}</span> ${price}`;
+                            }
+                        } else {
+                            priceEl.innerText = "Price Not Found / السعر غير موجود";
+                        }
+
+                        // Reset after 10 seconds
+                        setTimeout(() => {
+                            if (nameEl.innerText === (item.item_name || item.item_code)) {
+                                nameEl.innerText = "Ready / جاهز";
+                                priceEl.innerText = "";
+                            }
+                        }, 10000);
+                    } else {
+                        // Error handling
+                        nameEl.innerText = "Not Found / غير موجود";
+                        priceEl.innerText = "X";
+                        setTimeout(() => {
+                            nameEl.innerText = "Ready / جاهز";
+                            priceEl.innerText = "";
+                        }, 3000);
+                    }
+                }
+            });
+        }
+    });
+</script>
+{% endblock %}
